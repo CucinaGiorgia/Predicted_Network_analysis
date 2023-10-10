@@ -27,6 +27,15 @@ library(stringr)
 (BH, no correction and imputed table). BH and no correction were ready for further analysis, whereas the imputed table was used to perform LIMMA statistical approach. Another table was analysed on Perseus (doing permutation).
 
 ```{r Loading table}
+protein_groups <- data.table::fread(here::here("proteinGroups_sqstm1.txt")) %>% 
+  janitor::clean_names() %>% 
+  dplyr::filter(potential_contaminant!="+" & only_identified_by_site!="+" & reverse!="+" ) %>% 
+  dplyr::select(gene_names, intensity) %>% 
+  dplyr::mutate(intensity=log2(intensity)) %>% 
+  dplyr::mutate(intensity=dplyr::na_if(intensity, -Inf))
+  
+
+
 welch_bh <-
   openxlsx::read.xlsx(xlsxFile = "/Users/giorgiacucina/QProMS_functions.git/Univariate_table_2023-09-19.xlsx") %>%
   dplyr::filter(apexp62_vs_apexonly_significant) %>%
@@ -72,7 +81,7 @@ limma_tibble<- topTable(fit, number = nrow(limma)) %>% tibble::rownames_to_colum
   dplyr::mutate(p_adj= -log10(adj.P.Val)) %>% 
   dplyr::mutate(gene_names= stringr::str_replace(gene_names, "_.*", ""))
 
- # limma_tibble %>% write.table(file = "/Users/giorgiacucina/Desktop/limma_nodes.txt")
+ # limma_tibble %>% write.table(file = "/Users/giorgiacucina/Desktop/limma_nodes.txt",quote = FALSE,sep = "\t", row.names = FALSE)
 ```
 
 # STRING db
@@ -104,8 +113,6 @@ string_find_interactors <- function(table, score=400, limits=NULL) {
       limit = limits
     ) %>%
     dplyr::select(source = preferredName_A, target = preferredName_B, score) %>% #Real vs predicted instead of source and target
-    dplyr::mutate(source_target = paste0(source, "_", target)) %>%
-    dplyr::mutate(target_source = paste0(target, "_", source)) %>% 
     unique() # GUARDA QUI
   return(data)
 }
@@ -376,11 +383,20 @@ string_exp_int <- function(table) {
 
 ```{r LIMMA analysis}
 interactors <-
-  string_find_interactors(table = limma_tibble) #Trovo tutti i primi interattori della nostra lista sperimetnale
+  string_find_interactors(table = limma_tibble, score = 400, limits = NULL) %>% #Trovo tutti i primi interattori della nostra lista sperimetnale
 # interactors %>% write.table(file = "/Users/giorgiacucina/Desktop/limma_interactors.txt")
 
+dplyr::left_join(limma_tibble, by=c("source"="gene_names")) %>% 
+  dplyr::left_join(protein_groups, by=c("target"="gene_names")) %>% 
+  dplyr::select(-protein_i_ds)
+
+nodes <- string_find_interactors(table = limma_tibble, score = 800, limits = NULL) %>%  dplyr::distinct(target) 
+
 predicted_nodes <-
-  predicted_node_table(predicted_table_interactors = interactors, table = limma_tibble) #Lista di tutti i nodi sperimentali e predetti
+  predicted_node_table(predicted_table_interactors = interactors, table = limma_tibble) %>% 
+  
+
+  #Lista di tutti i nodi sperimentali e predetti
 
 limma_all_predicted <- interactors %>% 
   dplyr::filter(score>=0.4) %>% 
@@ -394,8 +410,12 @@ stringdb_filtered<- human_string %>%
   unique() #Trovo le interazioni tra i nodi predetti da StringDB
   
 limma_all <- interactors %>% 
-  dplyr::bind_rows(stringdb_filtered) #Tabella finale con tutte le interazioni tra tutti i nodi sperimentali e predetti
+  dplyr::bind_rows(stringdb_filtered)#Tabella finale con tutte le interazioni tra tutti i nodi sperimentali e predetti
 
+
+limma_roc_filtered  %>% dplyr::filter(is.na(logFC)) %>% dplyr::distinct(source) %>% nrow()
+  
+  
 corum <- corum_edges(predicted_list = predicted_nodes)
 
 
@@ -404,7 +424,9 @@ limma_roc_table <- roc_precision_data(corum_table = corum, string_predicted_inte
 roc_precision_graph(data = limma_roc_table, graph = "roc")
 
 
-
+limma_roc_filtered <- limma_all %>% 
+  dplyr::select(-int, -source_target, -target_source) %>% 
+dplyr::filter(score>=0.8)
 
 
  # limma_all %>% write.table(file = "/Users/giorgiacucina/Desktop/limma_all.txt")
@@ -413,21 +435,48 @@ limma_enrichment <- enrichment_table(predicted_table_interactors = interactors, 
 
 # limma_enrichment %>% write.table(file = "/Users/giorgiacucina/Desktop/limma_enrichment.txt")
 
-limma_cluster <- read.csv(file = "/Users/giorgiacucina/Desktop/Phag+ESCRT default  node.csv") %>% 
+
+limma_cluster <- read.csv(file = "/Users/giorgiacucina/Desktop/Phag+ESCRT filtered default  node.csv") %>% 
   dplyr::mutate(sperimental= if_else(is.na(adj_p_val), 0, 1)) %>% 
   dplyr::select(sperimental, name)
+
+pred_node<- limma_cluster %>% 
+  dplyr::filter(sperimental==0) %>% 
+  dplyr::left_join(protein_groups, by=c("name"="gene_names")) %>% 
+  dplyr::select(-protein_i_ds) %>% 
+  dplyr::rename(gene_names=name) %>% 
+  dplyr::mutate(logFC=NA) %>% 
+  dplyr::select(gene_names, logFC, intensity, sperimental)
+                
+list<-limma_cluster %>% 
+  dplyr::filter(sperimental==1) %>% pull(name)
+
+complete_nodes_cluster <- limma_tibble %>% 
+  dplyr::filter(gene_names %in% list) %>% 
+  dplyr::select(gene_names, logFC) %>% 
+  dplyr::mutate(intensity=NA, sperimental=1) %>% 
+  bind_rows(pred_node) 
+
+# complete_nodes_cluster %>% write.table(file = "/Users/giorgiacucina/Desktop/limma_cluster_node.txt", quote = FALSE,sep = "\t", row.names = FALSE)
+
+
 
 limma_int_cluster <- human_string %>% 
   dplyr::filter(combined_score>=0.8) %>% 
   dplyr::mutate(int= if_else(source %in% limma_cluster$name & target %in% limma_cluster$name, 1, 0)) %>% 
     dplyr::filter(int==1) %>% 
-
+  dplyr::select(-int) %>% 
   tidyr::unite("stringID", source:target, remove = TRUE) %>% 
   dplyr::distinct(stringID, .keep_all = TRUE) %>% 
-  dplyr::rename(score=combined_score)
-
-  # limma_int_cluster %>% write.table(file = "/Users/giorgiacucina/Desktop/limma_cluster.txt", quote = FALSE,sep = "\t", row.names = FALSE)
-
+  dplyr::rename(score=combined_score) %>% 
+tidyr::separate(stringID, c("source", "target")) %>% 
+  dplyr::left_join(limma_tibble, by=c("source"="gene_names")) %>% 
+  dplyr::left_join(protein_groups, by=c("target"="gene_names")) %>% 
+  dplyr::select(-protein_i_ds) %>% 
+  dplyr::mutate(sperimental= if_else(is.na(logFC), "N", "Y")) %>% 
+  dplyr::select(source, target, score)
+  
+   # limma_int_cluster %>% write.table(file = "/Users/giorgiacucina/Desktop/limma_cluster.txt", quote = FALSE,sep = "\t", row.names = FALSE)
 ```
 
 ```{r Perseus analysis}
