@@ -31,7 +31,7 @@ protein_groups <- data.table::fread(here::here("proteinGroups_sqstm1.txt")) %>%
   janitor::clean_names() %>% 
   dplyr::filter(potential_contaminant!="+" & only_identified_by_site!="+" & reverse!="+" ) %>% 
   dplyr::select(gene_names, intensity) %>% 
-  dplyr::mutate(intensity=log2(intensity)) %>% 
+  dplyr::mutate(intensity=log10(intensity)) %>% 
   dplyr::mutate(intensity=dplyr::na_if(intensity, -Inf))
   
 
@@ -383,12 +383,10 @@ string_exp_int <- function(table) {
 
 ```{r LIMMA analysis}
 interactors <-
-  string_find_interactors(table = limma_tibble, score = 400, limits = NULL) %>% #Trovo tutti i primi interattori della nostra lista sperimetnale
+  string_find_interactors(table = limma_tibble, score = 400, limits = NULL) %>%   #Trovo tutti i primi interattori della nostra lista sperimetnale
 # interactors %>% write.table(file = "/Users/giorgiacucina/Desktop/limma_interactors.txt")
-
 dplyr::left_join(limma_tibble, by=c("source"="gene_names")) %>% 
-  dplyr::left_join(protein_groups, by=c("target"="gene_names")) %>% 
-  dplyr::select(-protein_i_ds)
+  dplyr::left_join(protein_groups, by=c("target"="gene_names"))
 
 nodes <- string_find_interactors(table = limma_tibble, score = 800, limits = NULL) %>%  dplyr::distinct(target) 
 
@@ -443,10 +441,10 @@ limma_cluster <- read.csv(file = "/Users/giorgiacucina/Desktop/Phag+ESCRT filter
 pred_node<- limma_cluster %>% 
   dplyr::filter(sperimental==0) %>% 
   dplyr::left_join(protein_groups, by=c("name"="gene_names")) %>% 
-  dplyr::select(-protein_i_ds) %>% 
+  # dplyr::select(-protein_i_ds) %>% 
   dplyr::rename(gene_names=name) %>% 
-  dplyr::mutate(logFC=NA) %>% 
-  dplyr::select(gene_names, logFC, intensity, sperimental)
+  dplyr::mutate(FC_intensity=if_else(is.na(intensity), 0, -intensity)) %>%
+  dplyr::select(gene_names, FC_intensity, sperimental)
                 
 list<-limma_cluster %>% 
   dplyr::filter(sperimental==1) %>% pull(name)
@@ -454,10 +452,11 @@ list<-limma_cluster %>%
 complete_nodes_cluster <- limma_tibble %>% 
   dplyr::filter(gene_names %in% list) %>% 
   dplyr::select(gene_names, logFC) %>% 
-  dplyr::mutate(intensity=NA, sperimental=1) %>% 
+  dplyr::mutate(sperimental=1) %>% 
+  dplyr::rename(FC_intensity=logFC) %>% 
   bind_rows(pred_node) 
 
-# complete_nodes_cluster %>% write.table(file = "/Users/giorgiacucina/Desktop/limma_cluster_node.txt", quote = FALSE,sep = "\t", row.names = FALSE)
+ # complete_nodes_cluster %>% write.table(file = "/Users/giorgiacucina/Desktop/limma_cluster_node.txt", quote = FALSE,sep = "\t", row.names = FALSE)
 
 
 
