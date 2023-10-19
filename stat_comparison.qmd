@@ -20,6 +20,8 @@ library(purrr)
 library(org.Hs.eg.db)
 library(clusterProfiler)
 library(stringr)
+library(readr)
+library(proxyC)
 ```
 
 # Loading tables from QproMS
@@ -27,25 +29,60 @@ library(stringr)
 (BH, no correction and imputed table). BH and no correction were ready for further analysis, whereas the imputed table was used to perform LIMMA statistical approach. Another table was analysed on Perseus (doing permutation).
 
 ```{r Loading table}
-protein_groups <- data.table::fread(here::here("proteinGroups_sqstm1.txt")) %>% 
-  janitor::clean_names() %>% 
-  dplyr::filter(potential_contaminant!="+" & only_identified_by_site!="+" & reverse!="+" ) %>% 
-  dplyr::select(gene_names, intensity) %>% 
-  dplyr::mutate(intensity=log10(intensity)) %>% 
-  dplyr::mutate(intensity=dplyr::na_if(intensity, -Inf))
-  
+mn_proteome<- data.table::fread(here::here("proteinGroups_sqstm1.txt")) %>%
+janitor::clean_names() %>%
+dplyr::filter(potential_contaminant != "+" &
+only_identified_by_site != "+" &
+reverse != "+") %>%
+dplyr::select(protein_i_ds,
+dplyr::starts_with("i_baq_")
+) %>%
+dplyr::mutate(protein_i_ds = stringr::str_extract(protein_i_ds, "[^;]*")) %>%
+dplyr::select(-i_baq_peptides) %>%
+tidyr::pivot_longer(!protein_i_ds, names_to = "label", values_to = "ibaq") %>%
+dplyr::mutate(value = if_else(ibaq == 0, 0, 1)) %>%
+dplyr::mutate(condition= if_else(stringr::str_detect(label, "i_baq_mn"), "mnuc", "nuc")) %>%
+dplyr::group_by(protein_i_ds, condition) %>%
+dplyr::mutate(sumvalue = sum(value)) %>%
+dplyr::filter(sumvalue >= 3) %>%
+dplyr::mutate(ibaq= round(log2(ibaq), 3)) %>%
+dplyr::mutate(ibaq = if_else(ibaq == -Inf, 0, ibaq)) %>%
+dplyr::mutate(mean_ibaq= mean(ibaq, na.rm=TRUE)) %>%
+dplyr::select(-c(label, ibaq, value, sumvalue)) %>%
+dplyr::distinct() %>%
+dplyr::ungroup() %>%
+tidyr::pivot_wider(id_cols = protein_i_ds, names_from = "condition", values_from = "mean_ibaq") %>%
+dplyr::mutate(mnuc = if_else(is.na(mnuc), 0, mnuc)) %>%
+dplyr::mutate(nuc = if_else(is.na(nuc), 0, nuc))
+
+# write.table(mn_proteome %>% dplyr::select(-mnuc),file ="/Users/giorgiacucina/Desktop/nuc_proteome.tsv", quote = FALSE, sep = "\t", row.names = FALSE, col.names = FALSE)
 
 
-welch_bh <-
-  openxlsx::read.xlsx(xlsxFile = "/Users/giorgiacucina/QProMS_functions.git/Univariate_table_2023-09-19.xlsx") %>%
-  dplyr::filter(apexp62_vs_apexonly_significant) %>%
-  dplyr::filter(apexp62_vs_apexonly_fold_change > 0)
-
-
-welch_none <-
-  openxlsx::read.xlsx(xlsxFile = "/Users/giorgiacucina/QProMS_functions.git/none_adj_Univariate_table_2023-09-19.xlsx") %>%
-  dplyr::filter(apexp62_vs_apexonly_significant) %>%
-  dplyr::filter(apexp62_vs_apexonly_fold_change > 0)
+# apex<- data.table::fread(here::here("")) %>%
+# janitor::clean_names() %>%
+# dplyr::filter(potential_contaminant != "+" &
+# only_identified_by_site != "+" &
+# reverse != "+") %>%
+# dplyr::select(protein_i_ds,
+# dplyr::starts_with("i_baq_")
+# ) %>%
+# dplyr::mutate(protein_i_ds = stringr::str_extract(protein_i_ds, "[^;]*")) %>%
+# dplyr::select(-i_baq_peptides) %>%
+# tidyr::pivot_longer(!protein_i_ds, names_to = "label", values_to = "ibaq") %>%
+# dplyr::mutate(value = if_else(ibaq == 0, 0, 1)) %>%
+# dplyr::mutate(condition= if_else(stringr::str_detect(label, "i_baq_mn"), "mnuc", "nuc")) %>%
+# dplyr::group_by(protein_i_ds, condition) %>%
+# dplyr::mutate(sumvalue = sum(value)) %>%
+# dplyr::filter(sumvalue >= 3) %>%
+# dplyr::mutate(ibaq= round(log2(ibaq), 3)) %>%
+# dplyr::mutate(ibaq = if_else(ibaq == -Inf, 0, ibaq)) %>%
+# dplyr::mutate(mean_ibaq= mean(ibaq, na.rm=TRUE)) %>%
+# dplyr::select(-c(label, ibaq, value, sumvalue)) %>%
+# dplyr::distinct() %>%
+# dplyr::ungroup() %>%
+# tidyr::pivot_wider(id_cols = protein_i_ds, names_from = "condition", values_from = "mean_ibaq") %>%
+# dplyr::mutate(mnuc = if_else(is.na(mnuc), 0, mnuc)) %>%
+# dplyr::mutate(nuc = if_else(is.na(nuc), 0, nuc))
 
 limma <- openxlsx::read.xlsx(xlsxFile = "/Users/giorgiacucina/QProMS_functions.git/Imputed_table_2023-09-19.xlsx")
 
@@ -60,7 +97,11 @@ perseus <-
   dplyr::select(gene_names, p_val = log_welchs_t_test_p_value_apexonly_apexp62, log_fc =
                   welchs_t_test_difference_apexonly_apexp62) 
   # write.table(file = "/Users/giorgiacucina/Desktop/perseus_nodes.txt")
-  
+
+welch_bh <-
+  openxlsx::read.xlsx(xlsxFile = "/Users/giorgiacucina/QProMS_functions.git/Univariate_table_2023-09-19.xlsx") %>%
+  dplyr::filter(apexp62_vs_apexonly_significant) %>%
+  dplyr::filter(apexp62_vs_apexonly_fold_change > 0)  
 ```
 
 # LIMMA
@@ -87,16 +128,29 @@ limma_tibble<- topTable(fit, number = nrow(limma)) %>% tibble::rownames_to_colum
 # STRING db
 
 ```{r Stringdb upload}
-gene_names <- data.table::fread(here::here("9606.protein.info.v11.5.txt")) %>% 
+gene_names <- data.table::fread(here::here("9606.protein.info.v12.0.txt")) %>% 
   dplyr::select(string_protein_id, preferred_name)
 
-human_string <- data.table::fread(here::here("9606.protein.links.v11.5.txt")) %>% 
-  dplyr::mutate(combined_score= combined_score/1000) %>% 
-  dplyr::left_join(gene_names, by=c("protein1" = "string_protein_id")) %>%
-  dplyr::rename("source"="preferred_name") %>% 
-  dplyr::left_join(gene_names, by=c("protein2" = "string_protein_id")) %>% 
-  dplyr::rename("target"="preferred_name") %>% 
-  dplyr::select(source, target, combined_score)
+human_stringDB <- data.table::fread(here::here("9606.protein.links.detailed.v12.0.txt")) 
+
+human_string <- human_stringDB %>%
+  dplyr::mutate(
+    score = combined_score / 1000,
+    escore = experimental / 1000,
+    dscore = database / 1000
+  ) %>%
+  dplyr::left_join(gene_names, by = c("protein1" = "string_protein_id")) %>%
+  dplyr::rename("source" = "preferred_name") %>%
+  dplyr::left_join(gene_names, by = c("protein2" = "string_protein_id")) %>%
+  dplyr::rename("target" = "preferred_name") %>%
+  dplyr::mutate(score1 = (escore - 0.041) * (1 - 0.041)) %>%
+  dplyr::mutate(score2 = (dscore - 0.041) * (1 - 0.041)) %>%
+  dplyr::mutate(score_combin = 1 - (1 - score1) * (1 - score2)) %>%
+  dplyr::mutate(re_score = score_combin + 0.041 * (1 - score_combin)) %>%
+  dplyr::mutate(re_score = round(re_score, 3)) %>%
+  dplyr::select(source, target, score, re_score)
+
+
 ```
 
 ```{r All the functions}
@@ -178,7 +232,7 @@ roc_precision_data <- function(corum_table, string_predicted_interactors) {
     
     for (i in seq(from = 1, to = 0, by = -0.10)) {
       string_thr <- data %>%
-        dplyr::mutate(thr = if_else(score >= i, "yes", "no")) #Vedo quali interazioni di String sono anche in CORUM (TP)
+        dplyr::mutate(thr = if_else(re_score >= i, "yes", "no")) #Vedo quali interazioni di String sono anche in CORUM (TP)
       
       for (j in 1:10) {
         set.seed(j)
@@ -198,16 +252,16 @@ roc_precision_data <- function(corum_table, string_predicted_interactors) {
         random_int <- cbind(source, target) %>%
           as.data.frame() %>%
           dplyr::left_join(human_string, by = join_by(source, target)) %>%
-          dplyr::mutate(score = dplyr::if_else(is.na(combined_score), 0, combined_score)) %>% 
-          dplyr::select(-combined_score)
+          dplyr::mutate(re_score = dplyr::if_else(is.na(re_score), 0, re_score)) %>% 
+          dplyr::select(-score)
         
         df_1 <-
           tibble::tibble(
                     TP = sum(string_thr$thr == "yes" & string_thr$corum == 1),
                     FN = sum(string_thr$thr == "no" & string_thr$corum == 1),
                     TPR = TP / (TP + FN),
-                    FP = sum(random_int$score >= i),
-                    TN = sum(random_int$score < i),
+                    FP = sum(random_int$re_score >= i),
+                    TN = sum(random_int$re_score < i),
                     FPR = FP / (FP + TN),
                     STRINGSCORE = i,
                     fold = j
@@ -304,10 +358,10 @@ roc_precision_graph <- function(data, graph) {
   return(p)
 }
 
-enrichment_table <- function(predicted_table_interactors, thr, simplify_thr, table) {
+enrichment_table <- function(predicted_table_interactors, thr, ontology, simplify_thr, table) {
   
   roc_filtered <- predicted_table_interactors %>% 
-    dplyr::filter(score>=thr) %>% 
+    dplyr::filter(re_score>=thr) %>% 
     dplyr::count(target) %>%
     pull(target)
   
@@ -322,7 +376,7 @@ enrichment_table <- function(predicted_table_interactors, thr, simplify_thr, tab
     enrichGO(nodes_roc_filtered,
       OrgDb = org.Hs.eg.db,
       keyType= "SYMBOL",
-      ont = "CC",
+      ont = ontology,
       pAdjustMethod = "BH",
       pvalueCutoff = 0.05
     ) %>%
@@ -361,7 +415,6 @@ enrichment_table <- function(predicted_table_interactors, thr, simplify_thr, tab
   return(GO)
 }
 
-
 string_exp_int <- function(table) {
   
   gene_list <- table %>%
@@ -379,6 +432,8 @@ string_exp_int <- function(table) {
     dplyr::distinct(source_target, .keep_all = TRUE)
   return(data)
 }
+
+
 ```
 
 ```{r LIMMA analysis}
@@ -515,109 +570,6 @@ bh_enrichment <- enrichment_table(predicted_table_interactors = interactors, thr
 
 ```
 
-```{r GO}
-
- roc_filtered <- interactors %>% 
-    dplyr::filter(score>=0.8) %>%
-    dplyr::count(target) %>%
-    pull(target)
-  
-  sperimental <- limma_tibble %>%
-    pull(gene_names)
-  
-  nodes_predicted_all <- c(roc_filtered, sperimental)
-  
-  nodes_roc_filtered <- unique(nodes_predicted_all)
-  
-
-  
-    
-  enrich <-
-    enrichGO(nodes_roc_filtered,
-      OrgDb = org.Hs.eg.db,
-      keyType= "SYMBOL",
-      ont = "CC",
-      pAdjustMethod = "BH",
-      pvalueCutoff = 0.05
-    ) %>%
-    setReadable(OrgDb = org.Hs.eg.db) %>%
-    simplify(., cutoff = 1,
-             by = "p.adjust")
-  
- test <- enrich@result %>%
-    
-   dplyr::select(Description, GeneRatio, BgRatio, pvalue, qvalue, geneID, Count) %>% #Aggiungere una colonna di size
-   tidyr::separate_rows(geneID, sep = "/") %>%
-   dplyr::mutate(experimental = if_else(geneID %in% limma_tibble$gene_names, 1, 0)) %>%
-   dplyr::group_by(Description) %>%
-   dplyr::mutate(exp = sum(experimental == 1)) %>%
-   dplyr::mutate(ratio = exp / Count) %>%
-   dplyr::arrange(desc(ratio), qvalue) %>%
-   tidyr::separate(GeneRatio,
-                   into = c("a", "b"),
-                   sep = "/",
-                   remove = FALSE) %>%
-   tidyr::separate(BgRatio,
-                   into = c("c", "d"),
-                   sep = "/",
-                   remove = FALSE) %>%
-   dplyr::mutate(fold_enrichment = (as.numeric(a) / as.numeric(b)) /
-                   (as.numeric(c) / as.numeric(d))) %>%
-   dplyr::select(-c(a, b, c, d)) 
- 
-test2<- test %>%
-   dplyr::select(-exp, -experimental) %>% 
-   tidyr::nest(geneID = geneID) %>%
-   tidyr::unnest_wider(geneID) %>%
-   
- #   tidyr::hoist(.col = geneID,
- #                geneID_exp = "geneID")
- # tidyr::unnest_wider(geneID) %>%
-   
-   dplyr::mutate(geneID_exp = purrr::map(.x = geneID, ~ purrr::keep(.x, .x %in% limma_tibble$gene_names))) %>%
-    dplyr::mutate(geneID_pred = purrr::map(.x = geneID, ~ purrr::keep(.x, !.x %in% limma_tibble$gene_names))) %>%
-
-  dplyr::mutate(geneID_exp2 = purrr::map(.x = geneID_exp, ~ unlist(.x))) 
-   # dplyr::mutate(geneID_exp= purrr::modify_if(geneID_exp, ~ length(.) == 0, 
-  #   ~ list("NO")
-  # )) %>% 
-  #  dplyr::mutate(geneID_exp=  purrr::list_c(geneID_exp)) 
-  # 
-  # str()
-
-
-test2$geneID_exp[333] %>% unlist()
-
- 
-    dplyr::mutate(geneID_sperimental = if_else(experimental == 1, geneID, "")) %>% 
-    dplyr::mutate(geneID_predicted = if_else(experimental == 0, geneID, "")) %>%
-    dplyr::select(-experimental) %>% #To improve.
-    dplyr::ungroup() %>% 
-    tidyr::nest(geneID = geneID) %>% 
-    tidyr::unnest_wider(gene_names) %>% View()
-    
-    dplyr::mutate(geneID = stringr::str_replace_all("\\s+", "",geneID)) %>% 
-
-
-    dplyr::mutate(experimental = sum(experimental == 1)) %>%
-    dplyr::filter(experimental >= 1) %>%
-    dplyr::ungroup() %>%
-    tidyr::nest(gene_names = geneID) %>%
-    dplyr::arrange(qvalue, experimental) %>%
-    dplyr::rowwise() %>%
-    dplyr::mutate(gene_names = paste(gene_names, collapse = ",")) %>%
-    dplyr::mutate(gene_names = stringr::str_replace_all(gene_names, ",", "")) %>% 
-    dplyr::distinct(gene_names, .keep_all = TRUE) %>%
-    dplyr::mutate(gene_names = stringr::str_replace_all(gene_names, "[()c\"]", ""))
-  
-```
-
-```{r ROC curves}
-library(patchwork)
-
-p+p1 + theme(axis.text.y = element_blank(), axis.title.y = element_blank()) +plot_layout(guides = "collect")
-```
-
 ```{r Limma only experimental}
 limma_string <- string_exp_int(table = limma_tibble)
 # limma_string %>% write.table(file = "/Users/giorgiacucina/Desktop/limma_string.txt")
@@ -655,73 +607,61 @@ corum_limma_enrich <- enrichment_table(predicted_table_interactors = corum_predi
 
 ```
 
-```{r}
+```{r Proteome MN- Limma statistics }
+# Applied limma statistics to the micronuclei proteome
+mn_limma<- openxlsx::read.xlsx(xlsxFile = "Univariate_table_2023-10-19.xlsx") %>% 
+  dplyr::filter(mn_vs_nuc_significant) %>% 
+  dplyr::filter(mn_vs_nuc_fold_change>0) #Only selected significant upregulated
 
-  
-data <- limma_string %>%
-      dplyr::mutate(
-        corum = case_when(
-          source_target %in% corum_interactions$source_target ~ 1,
-          source_target %in% corum_interactions$target_source ~ 1,
-          TRUE ~ 0
-        )
-      )
-    
-    df <- tibble::tibble()
-    
-    for (i in seq(from = 1, to = 0, by = -0.10)) {
-      string_thr <- data %>%
-        dplyr::mutate(thr = if_else(score >= i, "yes", "no")) #Vedo quali interazioni di String sono anche in CORUM (TP)
-      
-      for (j in 1:10) {
-        set.seed(j)
-        source <-
-          sample(
-            string_thr$source,
-            size = sum(string_thr$corum == 1),
-            replace = TRUE
-          )
-        target <-
-          sample(
-            string_thr$target,
-            size = sum(string_thr$corum == 1),
-            replace = TRUE
-          )
-        
-        random_int <- cbind(source, target) %>%
-          as.data.frame() %>%
-          dplyr::left_join(human_string, by = join_by(source, target)) %>%
-          dplyr::mutate(score = dplyr::if_else(is.na(combined_score), 0, combined_score)) %>% 
-          dplyr::select(-combined_score)
-        
-        df_1 <-
-          tibble::tibble(
-                    TP = sum(string_thr$thr == "yes" & string_thr$corum == 1),
-                    FN = sum(string_thr$thr == "no" & string_thr$corum == 1),
-                    TPR = TP / (TP + FN),
-                    FP = sum(random_int$score >= i),
-                    TN = sum(random_int$score < i),
-                    FPR = FP / (FP + TN),
-                    STRINGSCORE = i,
-                    fold = j
-                  )  
-        
-        df <- rbind(df, df_1)
-        
-      }
-    }
-    
-    
-    df_final <- df %>%
-      dplyr::mutate(P = TP / (TP + FP)) %>%
-      dplyr::group_by(STRINGSCORE) %>%
-      dplyr::summarise(
-        FPR_mean = mean(FPR),
-        FPR_sd = sd(FPR),
-        TPR_mean = mean(TPR),
-        TPR_sd = sd(TPR),
-        P_mean = mean(P),
-        P_sd = sd(P)
-      ) 
+#Find all the interaction between our significant
+mn_limma_int <- human_string %>% 
+  dplyr::filter(re_score>0) %>%
+  dplyr::mutate(int= if_else(source %in% mn_limma$gene_names & target %in% mn_limma$gene_names, 1, 0), source_target = paste0(source, "_", target),target_source = paste0(target, "_", source)) %>% 
+  dplyr::filter(int==1) %>% 
+  dplyr::select(-int) 
+
+#Find interactions in CORUM
+mn_limma_corum <- corum_edges(predicted_list = mn_limma$gene_names)
+
+#Build the table to calculate the FPR of the scores
+mn_limma_roc_table <- roc_precision_data(corum_table = mn_limma_corum, string_predicted_interactors = mn_limma_int)
+roc_precision_graph(data = mn_limma_roc_table, graph = "roc")
+
+filt_mn <- mn_limma_int %>% dplyr::filter(re_score>=0.8)
+
+#Enrichment analysis of the filtered table by FPR<0.05
+mn_limma_enrichment <- enrichment_table(predicted_table_interactors = mn_limma_int, thr = 0.8, ontology = "CC", simplify_thr = 0.8, table = mn_limma)  
+```
+
+
+
+```{r}
+mn_proteome<- data.table::fread(here::here("proteinGroups_sqstm1.txt")) %>%
+janitor::clean_names() %>%
+dplyr::filter(potential_contaminant != "+" &
+only_identified_by_site != "+" &
+reverse != "+") %>%
+dplyr::select(protein_i_ds,
+dplyr::starts_with("i_baq_")
+) %>%
+dplyr::mutate(protein_i_ds = stringr::str_extract(protein_i_ds, "[^;]*")) %>%
+dplyr::select(-i_baq_peptides) %>%
+tidyr::pivot_longer(!protein_i_ds, names_to = "label", values_to = "ibaq") %>%
+dplyr::mutate(value = if_else(ibaq == 0, 0, 1)) %>%
+dplyr::mutate(condition= if_else(stringr::str_detect(label, "i_baq_mn"), "mnuc", "nuc")) %>%
+dplyr::group_by(protein_i_ds, condition) %>%
+dplyr::mutate(sumvalue = sum(value)) %>%
+dplyr::filter(sumvalue >= 3) %>%
+dplyr::mutate(ibaq= round(log2(ibaq), 3)) %>%
+dplyr::mutate(ibaq = if_else(ibaq == -Inf, 0, ibaq)) %>%
+dplyr::mutate(mean_ibaq= mean(ibaq, na.rm=TRUE)) %>%
+dplyr::select(-c(label, ibaq, value, sumvalue)) %>%
+dplyr::distinct() %>%
+dplyr::ungroup() %>%
+tidyr::pivot_wider(id_cols = protein_i_ds, names_from = "condition", values_from = "mean_ibaq") %>%
+dplyr::mutate(mnuc = if_else(is.na(mnuc), 0, mnuc)) %>%
+dplyr::mutate(nuc = if_else(is.na(nuc), 0, nuc))
+
+write.table(mn_proteome %>% dplyr::select(-mnuc), file = "/Users/giorgiacucina/Desktop/nuc_proteome.tsv",quote = FALSE,sep = "\t", row.names = FALSE, col.names = FALSE)
 
 ```
