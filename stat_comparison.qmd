@@ -36,66 +36,50 @@ dplyr::select(protein_i_ds,
 dplyr::starts_with("i_baq_")
 ) %>%
 dplyr::mutate(protein_i_ds = stringr::str_extract(protein_i_ds, "[^;]*")) %>%
-dplyr::select(-i_baq_peptides) %>%
+dplyr::select(-c(i_baq_peptides,i_baq_mn5)) %>%
 tidyr::pivot_longer(!protein_i_ds, names_to = "label", values_to = "ibaq") %>%
 dplyr::mutate(value = if_else(ibaq == 0, 0, 1)) %>%
 dplyr::mutate(condition= if_else(stringr::str_detect(label, "i_baq_mn"), "mnuc", "nuc")) %>%
 dplyr::group_by(protein_i_ds, condition) %>%
 dplyr::mutate(sumvalue = sum(value)) %>%
 dplyr::filter(sumvalue >= 3) %>%
-dplyr::mutate(ibaq= round(log2(ibaq), 3)) %>%
+dplyr::mutate(ibaq= log2(ibaq)) %>%
 dplyr::mutate(ibaq = if_else(ibaq == -Inf, 0, ibaq)) %>%
-dplyr::mutate(mean_ibaq= mean(ibaq, na.rm=TRUE)) %>%
-dplyr::select(-c(label, ibaq, value, sumvalue)) %>%
-dplyr::distinct() %>%
-dplyr::ungroup() %>%
+dplyr::summarise(mean_ibaq= round(mean(ibaq, na.rm=TRUE), 3)) %>%
+dplyr::ungroup() %>% 
 tidyr::pivot_wider(id_cols = protein_i_ds, names_from = "condition", values_from = "mean_ibaq") %>%
 dplyr::mutate(mnuc = if_else(is.na(mnuc), 0, mnuc)) %>%
 dplyr::mutate(nuc = if_else(is.na(nuc), 0, nuc))
 
+
 # write.table(mn_proteome %>% dplyr::select(-mnuc),file ="/Users/giorgiacucina/Desktop/nuc_proteome.tsv", quote = FALSE, sep = "\t", row.names = FALSE, col.names = FALSE)
 
-
-apex <-
-  data.table::fread(here::here("proteinGroups_APEX_P62.txt")) %>%
-  janitor::clean_names() %>%
-  dplyr::filter(potential_contaminant != "+" &
-                  only_identified_by_site != "+" &
-                  reverse != "+") %>%
-  dplyr::select(protein_i_ds,
-                gene_names,
-                dplyr::starts_with("i_baq_apexp62"),
-                dplyr::starts_with("i_baq_apexonly")) %>%
-  dplyr::mutate(protein_i_ds = stringr::str_extract(protein_i_ds, "[^;]*")) %>%
-  dplyr::mutate(gene_names = stringr::str_extract(gene_names, "[^;]*")) %>%
-  dplyr::mutate(gene_names = dplyr::if_else(gene_names == "",
-                                            protein_i_ds,
-                                            gene_names)) %>%
-  dplyr::select(-gene_names) %>% 
-tidyr::pivot_longer(!protein_i_ds, names_to = "label", values_to = "ibaq") %>% 
-dplyr::mutate(value = if_else(ibaq == 0, 0, 1)) %>%
-dplyr::group_by(protein_i_ds) %>% 
-dplyr::mutate(sumvalue = sum(value)) %>%
-dplyr::filter(sumvalue >= 3) %>%
-  dplyr::mutate(ibaq= round(log2(ibaq), 3)) %>%
-dplyr::mutate(ibaq = if_else(ibaq == -Inf, 0, ibaq)) %>%
-  dplyr::mutate(mean_ibaq= mean(ibaq, na.rm=TRUE)) %>% 
-  dplyr::group_by(mean_ibaq) %>% 
-tidyr::pivot_wider(id_cols = protein_i_ds, names_from = "label", values_from = "ibaq") %>%
-  View()
-# dplyr::mutate(condition= if_else(stringr::str_detect(label, "i_baq_mn"), "mnuc", "nuc")) %>%
-# dplyr::group_by(protein_i_ds, condition) %>%
+# apex <-
+#   data.table::fread(here::here("proteinGroups_APEX_P62.txt")) %>%
+#   janitor::clean_names() %>%
+#   dplyr::filter(potential_contaminant != "+" &
+#                   only_identified_by_site != "+" &
+#                   reverse != "+") %>%
+#   dplyr::select(protein_i_ds,
+#                 gene_names,
+#                 dplyr::starts_with("i_baq_apexp62"),
+#                 dplyr::starts_with("i_baq_apexonly")) %>%
+#   dplyr::mutate(protein_i_ds = stringr::str_extract(protein_i_ds, "[^;]*")) %>%
+#   dplyr::mutate(gene_names = stringr::str_extract(gene_names, "[^;]*")) %>%
+#   dplyr::mutate(gene_names = dplyr::if_else(gene_names == "",
+#                                             protein_i_ds,
+#                                             gene_names)) %>%
+#   dplyr::select(-gene_names) %>% 
+# tidyr::pivot_longer(!protein_i_ds, names_to = "label", values_to = "ibaq") %>% 
+# dplyr::mutate(value = if_else(ibaq == 0, 0, 1)) %>%
+# dplyr::group_by(protein_i_ds) %>% 
 # dplyr::mutate(sumvalue = sum(value)) %>%
 # dplyr::filter(sumvalue >= 3) %>%
-# dplyr::mutate(ibaq= round(log2(ibaq), 3)) %>%
+#   dplyr::mutate(ibaq= round(log2(ibaq), 3)) %>%
 # dplyr::mutate(ibaq = if_else(ibaq == -Inf, 0, ibaq)) %>%
-# dplyr::mutate(mean_ibaq= mean(ibaq, na.rm=TRUE)) %>%
-# dplyr::select(-c(label, ibaq, value, sumvalue)) %>%
-# dplyr::distinct() %>%
-# dplyr::ungroup() %>%
-# tidyr::pivot_wider(id_cols = protein_i_ds, names_from = "condition", values_from = "mean_ibaq") %>%
-# dplyr::mutate(mnuc = if_else(is.na(mnuc), 0, mnuc)) %>%
-# dplyr::mutate(nuc = if_else(is.na(nuc), 0, nuc))
+#   dplyr::mutate(mean_ibaq= mean(ibaq, na.rm=TRUE)) %>% 
+#   dplyr::group_by(mean_ibaq) %>% 
+# tidyr::pivot_wider(id_cols = protein_i_ds, names_from = "label", values_from = "ibaq") 
 
 limma <- openxlsx::read.xlsx(xlsxFile = "/Users/giorgiacucina/QProMS_functions.git/Imputed_table_2023-09-19.xlsx")
 
@@ -141,17 +125,15 @@ limma_tibble<- topTable(fit, number = nrow(limma)) %>% tibble::rownames_to_colum
 # STRING db
 
 ```{r Stringdb upload}
-gene_names <- data.table::fread(here::here("9606.protein.info.v12.0.txt")) %>% 
+gene_names <-
+  data.table::fread(here::here("9606.protein.info.v12.0.txt")) %>%
   dplyr::select(string_protein_id, preferred_name)
 
-human_stringDB <- data.table::fread(here::here("9606.protein.links.detailed.v12.0.txt")) 
-
-human_string <- human_stringDB %>%
-  dplyr::mutate(
-    score = combined_score / 1000,
-    escore = experimental / 1000,
-    dscore = database / 1000
-  ) %>%
+human_string <-
+  data.table::fread(here::here("9606.protein.links.detailed.v12.0.txt")) %>%
+  dplyr::mutate(score = combined_score / 1000,
+                escore = experimental / 1000,
+                dscore = database / 1000) %>%
   dplyr::left_join(gene_names, by = c("protein1" = "string_protein_id")) %>%
   dplyr::rename("source" = "preferred_name") %>%
   dplyr::left_join(gene_names, by = c("protein2" = "string_protein_id")) %>%
@@ -161,9 +143,8 @@ human_string <- human_stringDB %>%
   dplyr::mutate(score_combin = 1 - (1 - score1) * (1 - score2)) %>%
   dplyr::mutate(re_score = score_combin + 0.041 * (1 - score_combin)) %>%
   dplyr::mutate(re_score = round(re_score, 3)) %>%
+  dplyr::mutate(re_score= if_else(re_score<0, 0, re_score)) %>% 
   dplyr::select(source, target, score, re_score)
-
-
 ```
 
 ```{r All the functions}
@@ -208,7 +189,7 @@ raw_corum_table <-
     unique() %>%
     dplyr::select(name, components_genesymbols) %>%
     tidyr::separate_rows(components_genesymbols, sep = "_") %>%
-    dplyr::filter(components_genesymbols %in% predicted_list) %>% #Potremmo voler tenere i nodi di corum che non sono nella nostra lista?
+    dplyr::filter(components_genesymbols %in% predicted_list) %>%
     unique() %>% 
     get_dupes(name)
 
@@ -233,6 +214,7 @@ raw_corum_table <-
 roc_precision_data <- function(corum_table, string_predicted_interactors) {
   
     data <- string_predicted_interactors %>%
+      dplyr::select(-score) %>% 
       dplyr::mutate(
         corum = case_when(
           source_target %in% corum_table$source_target ~ 1,
@@ -447,12 +429,18 @@ string_exp_int <- function(table) {
     dplyr::mutate(source_target = paste0(source, "_", target)) %>%
     dplyr::mutate(target_source = paste0(target, "_", source)) %>%
     dplyr::distinct(source_target, .keep_all = TRUE) %>% 
-    dplyr::select(source, target, score, re_score) %>% 
-    dplyr::filter(re_score>0)
+    dplyr::select(source, target, score, re_score, source_target, target_source)
   return(rescoring)
 }
 
-
+ideal_score <- function(roc_table, error_rate=0.05){
+  data <- roc_table %>% 
+  dplyr::select(score=STRINGSCORE, FPR=FPR_mean) %>% 
+  dplyr::filter(FPR<error_rate) %>% 
+  pull(score)
+  
+  return(data)
+}
 ```
 
 ```{r LIMMA analysis}
@@ -552,23 +540,31 @@ tidyr::separate(stringID, c("source", "target")) %>%
    # limma_int_cluster %>% write.table(file = "/Users/giorgiacucina/Desktop/limma_cluster.txt", quote = FALSE,sep = "\t", row.names = FALSE)
 ```
 
-```{r Perseus analysis}
-interactors <-
-  string_find_interactors(table = perseus)
-# interactors %>% write.table(file = "/Users/giorgiacucina/Desktop/perseus_interactors.txt")
+```{r Proteome MN- Limma statistics }
+# Applied limma statistics to the micronuclei proteome
+mn_limma<- openxlsx::read.xlsx(xlsxFile = "Univariate_table_2023-10-20.xlsx") %>% 
+  dplyr::filter(mnuc_vs_nuc_significant) %>% 
+  dplyr::filter(mnuc_vs_nuc_fold_change>0) #Only selected significant upregulated
 
-predicted_nodes <-
-  predicted_node_table(predicted_table_interactors = interactors, table = perseus)
+#Find all the interaction between our significant
+mn_limma_int <- human_string %>% 
+  dplyr::mutate(int= if_else(source %in% mn_limma$gene_names & target %in% mn_limma$gene_names, 1, 0), source_target = paste0(source, "_", target),target_source = paste0(target, "_", source)) %>% 
+  dplyr::filter(int==1) %>% 
+  dplyr::select(-int) 
 
-corum <- corum_edges(predicted_list = predicted_nodes)
+#Find interactions in CORUM
+mn_limma_corum <- corum_edges(predicted_list = mn_limma$gene_names)
 
-perseus_roc_table <- roc_precision_data(corum_table = corum, string_predicted_interactors = interactors)
+#Build the table to calculate the FPR of the scores
+mn_limma_roc_table <- roc_precision_data(corum_table = mn_limma_corum, string_predicted_interactors = mn_limma_int)
+roc_precision_graph(data = mn_limma_roc_table, graph = "roc")
 
-p1 <- roc_precision_graph(data = perseus_roc_table, graph = "roc")
-p1
+ideal_score(roc_table = mn_limma_roc_table, error_rate = 0.01)
 
-perseus_enrichment <- enrichment_table(predicted_table_interactors = interactors, thr = 0.9, simplify_thr = 0.7, table = perseus)
+filt_mn <- mn_limma_int %>% dplyr::filter(re_score>=0.7)
 
+#Enrichment analysis of the filtered table by FPR<0.05
+mn_limma_enrichment <- enrichment_table(predicted_table_interactors = mn_limma_int, thr = 0.8, ontology = "CC", simplify_thr = 0.8, table = mn_limma)  
 ```
 
 ```{r BH analysis}
@@ -595,9 +591,31 @@ limma_string <- string_exp_int(table = limma_tibble)
 
 corum_interactions <- corum_edges(predicted_list = limma_tibble %>%  pull(gene_names))
 
-limma_sperimental_roc <- roc_precision_data(corum_table = corum_interactions, string_predicted_interactors = limma_string)
-roc_precision_graph(data = limma_sperimental_roc, graph = "roc")
+limma_exp_roc <- roc_precision_data(corum_table = corum_interactions, string_predicted_interactors = limma_string)
+roc_precision_graph(data = limma_exp_roc, graph = "roc")
 
+
+
+
+limma_exp_enrich<- enrichment_table(predicted_table_interactors = limma_string, thr = 0.9, ontology = "CC", simplify_thr = 0.8, table = limma_tibble)
+```
+
+```{r Perseus analysis}
+interactors <-
+  string_find_interactors(table = perseus)
+# interactors %>% write.table(file = "/Users/giorgiacucina/Desktop/perseus_interactors.txt")
+
+predicted_nodes <-
+  predicted_node_table(predicted_table_interactors = interactors, table = perseus)
+
+corum <- corum_edges(predicted_list = predicted_nodes)
+
+perseus_roc_table <- roc_precision_data(corum_table = corum, string_predicted_interactors = interactors)
+
+p1 <- roc_precision_graph(data = perseus_roc_table, graph = "roc")
+p1
+
+perseus_enrichment <- enrichment_table(predicted_table_interactors = interactors, thr = 0.9, simplify_thr = 0.7, table = perseus)
 
 ```
 
@@ -626,78 +644,9 @@ corum_limma_enrich <- enrichment_table(predicted_table_interactors = corum_predi
 
 ```
 
-```{r Proteome MN- Limma statistics }
-# Applied limma statistics to the micronuclei proteome
-mn_limma<- openxlsx::read.xlsx(xlsxFile = "Univariate_table_2023-10-19.xlsx") %>% 
-  dplyr::filter(mn_vs_nuc_significant) %>% 
-  dplyr::filter(mn_vs_nuc_fold_change>0) #Only selected significant upregulated
-
-#Find all the interaction between our significant
-mn_limma_int <- human_string %>% 
-  dplyr::filter(re_score>0) %>%
-  dplyr::mutate(int= if_else(source %in% mn_limma$gene_names & target %in% mn_limma$gene_names, 1, 0), source_target = paste0(source, "_", target),target_source = paste0(target, "_", source)) %>% 
-  dplyr::filter(int==1) %>% 
-  dplyr::select(-int) 
-
-#Find interactions in CORUM
-mn_limma_corum <- corum_edges(predicted_list = mn_limma$gene_names)
-
-#Build the table to calculate the FPR of the scores
-mn_limma_roc_table <- roc_precision_data(corum_table = mn_limma_corum, string_predicted_interactors = mn_limma_int)
-roc_precision_graph(data = mn_limma_roc_table, graph = "roc")
-
-filt_mn <- mn_limma_int %>% dplyr::filter(re_score>=0.8)
-
-#Enrichment analysis of the filtered table by FPR<0.05
-mn_limma_enrichment <- enrichment_table(predicted_table_interactors = mn_limma_int, thr = 0.8, ontology = "CC", simplify_thr = 0.8, table = mn_limma)  
-```
 
 ```{r}
-mn_proteome<- data.table::fread(here::here("proteinGroups_sqstm1.txt")) %>%
-janitor::clean_names() %>%
-dplyr::filter(potential_contaminant != "+" &
-only_identified_by_site != "+" &
-reverse != "+") %>%
-dplyr::select(protein_i_ds,
-dplyr::starts_with("i_baq_")
-) %>%
-dplyr::mutate(protein_i_ds = stringr::str_extract(protein_i_ds, "[^;]*")) %>%
-dplyr::select(-i_baq_peptides) %>%
-tidyr::pivot_longer(!protein_i_ds, names_to = "label", values_to = "ibaq") %>%
-dplyr::mutate(value = if_else(ibaq == 0, 0, 1)) %>%
-dplyr::mutate(condition= if_else(stringr::str_detect(label, "i_baq_mn"), "mnuc", "nuc")) %>%
-dplyr::group_by(protein_i_ds, condition) %>%
-dplyr::mutate(sumvalue = sum(value)) %>%
-dplyr::filter(sumvalue >= 3) %>%
-dplyr::mutate(ibaq= round(log2(ibaq), 3)) %>%
-dplyr::mutate(ibaq = if_else(ibaq == -Inf, 0, ibaq)) %>%
-dplyr::mutate(mean_ibaq= mean(ibaq, na.rm=TRUE)) %>%
-dplyr::select(-c(label, ibaq, value, sumvalue)) %>%
-dplyr::distinct() %>%
-dplyr::ungroup() %>%
-tidyr::pivot_wider(id_cols = protein_i_ds, names_from = "condition", values_from = "mean_ibaq") %>%
-dplyr::mutate(mnuc = if_else(is.na(mnuc), 0, mnuc)) %>%
-dplyr::mutate(nuc = if_else(is.na(nuc), 0, nuc))
 
 
-data <-
-    rba_string_interactions_network(
-      ids = limma_tibble$gene_names,
-      species = 9606,
-      required_score = 400
-    )
 
-
-rescoring <- function(table){
-  data <- table %>% 
-    dplyr::select(source = preferredName_A, target = preferredName_B, score, escore, dscore) %>%
-    dplyr::mutate(score1 = (escore - 0.041) * (1 - 0.041)) %>%
-  dplyr::mutate(score2 = (dscore - 0.041) * (1 - 0.041)) %>%
-  dplyr::mutate(score_combin = 1 - (1 - score1) * (1 - score2)) %>%
-  dplyr::mutate(re_score = score_combin + 0.041 * (1 - score_combin)) %>%
-  dplyr::mutate(re_score = round(re_score, 3)) %>%
-  dplyr::select(source, target, score, re_score)
-  
-  return(data)
-}
 ```
