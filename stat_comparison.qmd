@@ -24,9 +24,7 @@ library(readr)
 library(proxyC)
 ```
 
-# Loading tables from QproMS
-
-(BH, no correction and imputed table). BH and no correction were ready for further analysis, whereas the imputed table was used to perform LIMMA statistical approach. Another table was analysed on Perseus (doing permutation).
+# Loading tables from QproMS and Protein Groups
 
 ```{r Loading table}
 mn_proteome<- data.table::fread(here::here("proteinGroups_sqstm1.txt")) %>%
@@ -58,18 +56,33 @@ dplyr::mutate(nuc = if_else(is.na(nuc), 0, nuc))
 # write.table(mn_proteome %>% dplyr::select(-mnuc),file ="/Users/giorgiacucina/Desktop/nuc_proteome.tsv", quote = FALSE, sep = "\t", row.names = FALSE, col.names = FALSE)
 
 
-# apex<- data.table::fread(here::here("")) %>%
-# janitor::clean_names() %>%
-# dplyr::filter(potential_contaminant != "+" &
-# only_identified_by_site != "+" &
-# reverse != "+") %>%
-# dplyr::select(protein_i_ds,
-# dplyr::starts_with("i_baq_")
-# ) %>%
-# dplyr::mutate(protein_i_ds = stringr::str_extract(protein_i_ds, "[^;]*")) %>%
-# dplyr::select(-i_baq_peptides) %>%
-# tidyr::pivot_longer(!protein_i_ds, names_to = "label", values_to = "ibaq") %>%
-# dplyr::mutate(value = if_else(ibaq == 0, 0, 1)) %>%
+apex <-
+  data.table::fread(here::here("proteinGroups_APEX_P62.txt")) %>%
+  janitor::clean_names() %>%
+  dplyr::filter(potential_contaminant != "+" &
+                  only_identified_by_site != "+" &
+                  reverse != "+") %>%
+  dplyr::select(protein_i_ds,
+                gene_names,
+                dplyr::starts_with("i_baq_apexp62"),
+                dplyr::starts_with("i_baq_apexonly")) %>%
+  dplyr::mutate(protein_i_ds = stringr::str_extract(protein_i_ds, "[^;]*")) %>%
+  dplyr::mutate(gene_names = stringr::str_extract(gene_names, "[^;]*")) %>%
+  dplyr::mutate(gene_names = dplyr::if_else(gene_names == "",
+                                            protein_i_ds,
+                                            gene_names)) %>%
+  dplyr::select(-gene_names) %>% 
+tidyr::pivot_longer(!protein_i_ds, names_to = "label", values_to = "ibaq") %>% 
+dplyr::mutate(value = if_else(ibaq == 0, 0, 1)) %>%
+dplyr::group_by(protein_i_ds) %>% 
+dplyr::mutate(sumvalue = sum(value)) %>%
+dplyr::filter(sumvalue >= 3) %>%
+  dplyr::mutate(ibaq= round(log2(ibaq), 3)) %>%
+dplyr::mutate(ibaq = if_else(ibaq == -Inf, 0, ibaq)) %>%
+  dplyr::mutate(mean_ibaq= mean(ibaq, na.rm=TRUE)) %>% 
+  dplyr::group_by(mean_ibaq) %>% 
+tidyr::pivot_wider(id_cols = protein_i_ds, names_from = "label", values_from = "ibaq") %>%
+  View()
 # dplyr::mutate(condition= if_else(stringr::str_detect(label, "i_baq_mn"), "mnuc", "nuc")) %>%
 # dplyr::group_by(protein_i_ds, condition) %>%
 # dplyr::mutate(sumvalue = sum(value)) %>%
@@ -416,21 +429,27 @@ enrichment_table <- function(predicted_table_interactors, thr, ontology, simplif
 }
 
 string_exp_int <- function(table) {
-  
   gene_list <- table %>%
     dplyr::pull(gene_names)
   
   data <-
-    rba_string_interactions_network(
-      ids = gene_list,
-      species = 9606,
-      required_score = 400
-    ) %>%
-    dplyr::select(source = preferredName_A, target = preferredName_B, score) %>%
+    rba_string_interactions_network(ids = gene_list,
+                                    species = 9606,
+                                    required_score = 400) %>%
+    dplyr::select(source = preferredName_A, target = preferredName_B, score, escore, dscore) 
+  
+  rescoring <- data %>% 
+    dplyr::mutate(score1 = (escore - 0.041) * (1 - 0.041)) %>%
+    dplyr::mutate(score2 = (dscore - 0.041) * (1 - 0.041)) %>%
+    dplyr::mutate(score_combin = 1 - (1 - score1) * (1 - score2)) %>%
+    dplyr::mutate(re_score = score_combin + 0.041 * (1 - score_combin)) %>%
+    dplyr::mutate(re_score = round(re_score, 3)) %>%
     dplyr::mutate(source_target = paste0(source, "_", target)) %>%
-    dplyr::mutate(target_source = paste0(target, "_", source)) %>% 
-    dplyr::distinct(source_target, .keep_all = TRUE)
-  return(data)
+    dplyr::mutate(target_source = paste0(target, "_", source)) %>%
+    dplyr::distinct(source_target, .keep_all = TRUE) %>% 
+    dplyr::select(source, target, score, re_score) %>% 
+    dplyr::filter(re_score>0)
+  return(rescoring)
 }
 
 
@@ -633,8 +652,6 @@ filt_mn <- mn_limma_int %>% dplyr::filter(re_score>=0.8)
 mn_limma_enrichment <- enrichment_table(predicted_table_interactors = mn_limma_int, thr = 0.8, ontology = "CC", simplify_thr = 0.8, table = mn_limma)  
 ```
 
-
-
 ```{r}
 mn_proteome<- data.table::fread(here::here("proteinGroups_sqstm1.txt")) %>%
 janitor::clean_names() %>%
@@ -662,6 +679,25 @@ tidyr::pivot_wider(id_cols = protein_i_ds, names_from = "condition", values_from
 dplyr::mutate(mnuc = if_else(is.na(mnuc), 0, mnuc)) %>%
 dplyr::mutate(nuc = if_else(is.na(nuc), 0, nuc))
 
-write.table(mn_proteome %>% dplyr::select(-mnuc), file = "/Users/giorgiacucina/Desktop/nuc_proteome.tsv",quote = FALSE,sep = "\t", row.names = FALSE, col.names = FALSE)
 
+data <-
+    rba_string_interactions_network(
+      ids = limma_tibble$gene_names,
+      species = 9606,
+      required_score = 400
+    )
+
+
+rescoring <- function(table){
+  data <- table %>% 
+    dplyr::select(source = preferredName_A, target = preferredName_B, score, escore, dscore) %>%
+    dplyr::mutate(score1 = (escore - 0.041) * (1 - 0.041)) %>%
+  dplyr::mutate(score2 = (dscore - 0.041) * (1 - 0.041)) %>%
+  dplyr::mutate(score_combin = 1 - (1 - score1) * (1 - score2)) %>%
+  dplyr::mutate(re_score = score_combin + 0.041 * (1 - score_combin)) %>%
+  dplyr::mutate(re_score = round(re_score, 3)) %>%
+  dplyr::select(source, target, score, re_score)
+  
+  return(data)
+}
 ```
