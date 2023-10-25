@@ -31,7 +31,7 @@ mn_proteome<- data.table::fread(here::here("proteinGroups_sqstm1.txt")) %>%
 janitor::clean_names() %>%
 dplyr::filter(potential_contaminant != "+" &
 only_identified_by_site != "+" &
-reverse != "+") %>%
+reverse != "+") %>% 
 dplyr::select(protein_i_ds,
 dplyr::starts_with("i_baq_")
 ) %>%
@@ -567,6 +567,18 @@ filt_mn <- mn_limma_int %>% dplyr::filter(re_score>=0.7)
 mn_limma_enrichment <- enrichment_table(predicted_table_interactors = mn_limma_int, thr = 0.8, ontology = "CC", simplify_thr = 0.8, table = mn_limma)  
 ```
 
+```{r Limma only experimental}
+limma_string <- string_exp_int(table = limma_tibble)
+# limma_string %>% write.table(file = "/Users/giorgiacucina/Desktop/limma_string.txt")
+
+corum_interactions <- corum_edges(predicted_list = limma_tibble %>%  pull(gene_names))
+
+limma_exp_roc <- roc_precision_data(corum_table = corum_interactions, string_predicted_interactors = limma_string)
+roc_precision_graph(data = limma_exp_roc, graph = "roc")
+
+limma_exp_enrich<- enrichment_table(predicted_table_interactors = limma_string, thr = 0.9, ontology = "CC", simplify_thr = 0.8, table = limma_tibble)
+```
+
 ```{r BH analysis}
 interactors <-
   string_find_interactors(table = welch_bh)
@@ -583,21 +595,6 @@ p2
 
 bh_enrichment <- enrichment_table(predicted_table_interactors = interactors, thr = 0.9, table = welch_bh)
 
-```
-
-```{r Limma only experimental}
-limma_string <- string_exp_int(table = limma_tibble)
-# limma_string %>% write.table(file = "/Users/giorgiacucina/Desktop/limma_string.txt")
-
-corum_interactions <- corum_edges(predicted_list = limma_tibble %>%  pull(gene_names))
-
-limma_exp_roc <- roc_precision_data(corum_table = corum_interactions, string_predicted_interactors = limma_string)
-roc_precision_graph(data = limma_exp_roc, graph = "roc")
-
-
-
-
-limma_exp_enrich<- enrichment_table(predicted_table_interactors = limma_string, thr = 0.9, ontology = "CC", simplify_thr = 0.8, table = limma_tibble)
 ```
 
 ```{r Perseus analysis}
@@ -645,8 +642,15 @@ corum_limma_enrich <- enrichment_table(predicted_table_interactors = corum_predi
 ```
 
 
+
 ```{r}
-
-
+bah<- openxlsx::read.xlsx(xlsxFile = "Univariate_table_2023-10-25-2.xlsx") %>% 
+  dplyr::select(majority_protein_i_ds,gene_names
+) %>%
+dplyr::mutate(majority_protein_i_ds = stringr::str_extract(majority_protein_i_ds, "[^;]*")) %>% 
+  dplyr::right_join(limma_tibble, by="gene_names") %>% 
+  dplyr::select(gene_names, majority_protein_i_ds) 
+  
 
 ```
+
