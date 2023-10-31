@@ -129,8 +129,11 @@ gene_names <-
   data.table::fread(here::here("9606.protein.info.v12.0.txt")) %>%
   dplyr::select(string_protein_id, preferred_name)
 
+human_string_raw <-
+  data.table::fread(here::here("9606.protein.links.detailed.v12.0.txt")) 
+
 human_string <-
-  data.table::fread(here::here("9606.protein.links.detailed.v12.0.txt")) %>%
+  human_string_raw %>% 
   dplyr::mutate(score = combined_score / 1000,
                 escore = experimental / 1000,
                 dscore = database / 1000) %>%
@@ -144,7 +147,7 @@ human_string <-
   dplyr::mutate(re_score = score_combin + 0.041 * (1 - score_combin)) %>%
   dplyr::mutate(re_score = round(re_score, 3)) %>%
   dplyr::mutate(re_score= if_else(re_score<0, 0, re_score)) %>% 
-  dplyr::select(source, target, score, re_score)
+  dplyr::select(source, target, score, re_score, protein1, protein2)
 ```
 
 ```{r All the functions}
@@ -301,8 +304,8 @@ roc_precision_graph <- function(data, graph) {
                     color = "black") +
       geom_rect(aes(
         xmin = 0,
-        xmax = 0.2,
-        ymin = 0.7,
+        xmax = 0.1,
+        ymin = 0.6,
         ymax = 1
       ),
       color = "darkgrey",
@@ -317,8 +320,8 @@ roc_precision_graph <- function(data, graph) {
         geom_errorbar(aes(xmin = FPR_mean - FPR_sd,
                         xmax = FPR_mean + FPR_sd),
                     color = "black")+
-  xlim(0, 0.2)+
-  ylim(0.7, 1)+
+  xlim(0, 0.1)+
+  ylim(0.6, 1)+
   theme_bw() +
   theme(
     axis.title = element_blank(), legend.position = "none"
@@ -346,7 +349,7 @@ roc_precision_graph <- function(data, graph) {
   
   p<-p +
     geom_line(color = "black") +
-      guides(color = guide_legend(title = "StringScore")) +
+      guides(color = guide_legend(title = "Score")) +
       ylim(0, 1) +
       xlim(0, 1) +
   theme_bw()
@@ -417,8 +420,10 @@ string_exp_int <- function(table) {
   data <-
     rba_string_interactions_network(ids = gene_list,
                                     species = 9606,
-                                    required_score = 400) %>%
-    dplyr::select(source = preferredName_A, target = preferredName_B, score, escore, dscore) 
+                                    required_score = 100) %>% 
+  tidyr::unite("StringID", stringId_A:stringId_B, remove = TRUE) %>% 
+  dplyr::distinct(StringID, .keep_all = TRUE) %>% 
+  dplyr::select(source = preferredName_A, target = preferredName_B, score, escore, dscore) 
   
   rescoring <- data %>% 
     dplyr::mutate(score1 = (escore - 0.041) * (1 - 0.041)) %>%
@@ -428,7 +433,7 @@ string_exp_int <- function(table) {
     dplyr::mutate(re_score = round(re_score, 3)) %>%
     dplyr::mutate(source_target = paste0(source, "_", target)) %>%
     dplyr::mutate(target_source = paste0(target, "_", source)) %>%
-    dplyr::distinct(source_target, .keep_all = TRUE) %>% 
+    dplyr::mutate(re_score= if_else(re_score<0, 0, re_score)) %>% 
     dplyr::select(source, target, score, re_score, source_target, target_source)
   return(rescoring)
 }
@@ -547,10 +552,27 @@ mn_limma<- openxlsx::read.xlsx(xlsxFile = "Univariate_table_2023-10-20.xlsx") %>
   dplyr::filter(mnuc_vs_nuc_fold_change>0) #Only selected significant upregulated
 
 #Find all the interaction between our significant
-mn_limma_int <- human_string %>% 
-  dplyr::mutate(int= if_else(source %in% mn_limma$gene_names & target %in% mn_limma$gene_names, 1, 0), source_target = paste0(source, "_", target),target_source = paste0(target, "_", source)) %>% 
-  dplyr::filter(int==1) %>% 
-  dplyr::select(-int) 
+mn_limma_int <- string_exp_int(table = mn_limma)
+
+# mn_limma_int2 <- 
+#   human_string %>%
+#   dplyr::mutate(
+#     int = if_else(
+#       source %in% mn_limma$gene_names &
+#         target %in% mn_limma$gene_names,
+#       1,
+#       0
+#     ),
+#     source_target = paste0(source, "_", target),
+#     target_source = paste0(target, "_", source)
+#   ) %>%
+#   dplyr::filter(int == 1) %>%
+#   dplyr::select(-int) %>% 
+#   tidyr::unite("test", protein1:protein2, remove=TRUE) %>% 
+#   dplyr::distinct(test, .keep_all = TRUE) %>% View()
+
+
+# write.table(mn_limma_int,file ="/Users/giorgiacucina/Desktop/mn_limma.txt", quote = FALSE, sep = "\t", row.names = FALSE)
 
 #Find interactions in CORUM
 mn_limma_corum <- corum_edges(predicted_list = mn_limma$gene_names)
@@ -561,7 +583,8 @@ roc_precision_graph(data = mn_limma_roc_table, graph = "roc")
 
 ideal_score(roc_table = mn_limma_roc_table, error_rate = 0.01)
 
-filt_mn <- mn_limma_int %>% dplyr::filter(re_score>=0.7)
+filt_mn <- mn_limma_int %>% dplyr::filter(re_score>=0.8)
+ # write.table(filt_mn,file ="/Users/giorgiacucina/Desktop/mn_limma_int.txt", quote = FALSE, sep = "\t", row.names = FALSE)
 
 #Enrichment analysis of the filtered table by FPR<0.05
 mn_limma_enrichment <- enrichment_table(predicted_table_interactors = mn_limma_int, thr = 0.8, ontology = "CC", simplify_thr = 0.8, table = mn_limma)  
@@ -652,5 +675,12 @@ dplyr::mutate(majority_protein_i_ds = stringr::str_extract(majority_protein_i_ds
   dplyr::select(gene_names, majority_protein_i_ds) 
   
 
+
+rba_string_interactions_network(ids = limma_tibble %>% pull(gene_names),
+                                    species = 9606,
+                                    required_score = 400) %>% 
+  tidyr::unite("StringID", stringId_A:stringId_B, remove = TRUE) %>% 
+  dplyr::distinct(StringID, .keep_all = TRUE) %>% 
+  View()
 ```
 
