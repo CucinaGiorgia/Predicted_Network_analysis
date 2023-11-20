@@ -1,0 +1,7 @@
+[2023-11-11 22:56:14] [INFO]    [OmnipathR] Welcome to OmnipathR!
+[2023-11-11 22:56:14] [INFO]    [OmnipathR] Initialized cache: `/Users/giorgiacucina/Library/Caches/OmnipathR`.
+[2023-11-11 22:56:17] [INFO]    [OmnipathR] Welcome to OmnipathR!
+[2023-11-11 22:56:17] [INFO]    [OmnipathR] Initialized cache: `/Users/giorgiacucina/Library/Caches/OmnipathR`.
+[2023-11-11 22:58:56] [TRACE]   [OmnipathR] Loaded data from RDS `/Users/giorgiacucina/Library/Caches/OmnipathR/a936d047aec5e3fcc61b42b75f13587cc2b40099-1.rds`.
+[2023-11-11 22:58:56] [INFO]    [OmnipathR] Loaded from cache: `https://omnipathdb.org/complexes?resources=CORUM&license=academic`
+[2023-11-11 22:58:56] [SUCCESS] [OmnipathR] Loaded 2734 protein complexes from cache.
